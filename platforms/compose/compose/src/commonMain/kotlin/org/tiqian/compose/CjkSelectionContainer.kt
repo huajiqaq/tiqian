@@ -31,6 +31,42 @@ import androidx.compose.ui.unit.dp
 fun rememberCjkSelectionState(): CjkSelectionState = remember { CjkSelectionState() }
 
 /**
+ * A host-supplied action appended to the selection context menu, next to Copy / Select All.
+ *
+ * Hosts use this to add selection-scoped behaviour (saving a highlight, opening a comment thread)
+ * without forking the renderer or reflection-reading internal selection state.
+ */
+class CjkSelectionMenuAction(
+    /** Stable identifier, used for menu ordering and accessibility. */
+    val id: String,
+    /** Menu label shown to the user. */
+    val label: String,
+    /** Called with the currently selected text when the user activates the item. */
+    val onInvoke: (String) -> Unit,
+)
+
+/**
+ * Host-rendered replacement for the platform selection menu.
+ *
+ * When provided, the container suppresses the platform menu and asks the host to draw the whole
+ * menu instead, so an app can keep its selection UI visually identical across renderers
+ * (for example when one renderer uses the platform menu and another cannot).
+ *
+ * [onCopy] / [onSelectAll] / [onClose] are the canonical system behaviours; [selectedText]
+ * is the current selection, and [actions] are the host-supplied extra items.
+ */
+class CjkSelectionMenuContent(
+    /** 精确的选中文本（按选区起止裁剪，不是整段）。 */
+    val selectedText: () -> String,
+    val onCopy: () -> Unit,
+    val onSelectAll: () -> Unit,
+    val onClose: () -> Unit,
+    /** 选区在根容器坐标系里的包围盒；菜单据此定位。 */
+    val selectionBoundsInRoot: () -> androidx.compose.ui.geometry.Rect?,
+    val actions: List<CjkSelectionMenuAction>,
+)
+
+/**
  * Enables source-faithful static-text selection for descendant `CjkText` surfaces. Unlike
  * Compose's `SelectionContainer`, this container consumes Tiqian [org.tiqian.core.LayoutResult]
  * geometry directly, so line breaks, punctuation glue, ruby expansion, and copied source ranges do
@@ -40,6 +76,8 @@ fun rememberCjkSelectionState(): CjkSelectionState = remember { CjkSelectionStat
  * When [content] uses `Modifier.verticalScroll`, pass that modifier's [scrollState] here as well.
  * A mouse, touch, or handle drag then scrolls inside the edge bands after the gesture has crossed
  * touch slop. `null` disables auto-scroll.
+ *
+ * [selectionActions] is appended to the platform selection menu after Copy / Select All.
  */
 @Composable
 fun CjkSelectionContainer(
@@ -49,6 +87,11 @@ fun CjkSelectionContainer(
     autoScrollEdgeSize: Dp = 48.dp,
     autoScrollMaxVelocity: Dp = 1_200.dp,
     document: CjkSelectionDocument? = null,
+    selectionActions: List<CjkSelectionMenuAction> = emptyList(),
+    /**
+     * 宿主自绘选区菜单。提供后不再显示平台菜单，保证与其它渲染引擎视觉一致。
+     */
+    selectionMenuContent: (@Composable (CjkSelectionMenuContent) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     @Suppress("DEPRECATION")
@@ -81,14 +124,23 @@ fun CjkSelectionContainer(
             .onGloballyPositioned(state::updateContainerCoordinates)
             .focusRequester(state.focusRequester)
             .onFocusChanged { focus ->
-                if (!focus.hasFocus && state.hasSelection) state.clearSelection()
+                // 宿主自绘菜单（selectionMenuContent）是独立弹窗：打开时会拿走焦点，
+                // 且 focusable 弹窗的外部触摸也会先触发 dismiss。两种情况都不代表
+                // 用户放弃了选区，此时清选区会导致拖拽手柄直接消失。
+                // 平台菜单与选区同窗口、由引擎管理关闭，保留原行为。
+                if (selectionMenuContent == null &&
+                    !focus.hasFocus &&
+                    state.hasSelection
+                ) {
+                    state.clearSelection()
+                }
             }
             .onKeyEvent(state::handleCopyKeyEvent)
             // A low-level focus target is enough for keyboard copy/Escape. `focusable()` also
             // publishes an otherwise empty accessibility node around every descendant text node.
             .focusTarget(),
     ) {
-        FoundationSelectionContextMenuArea(state) {
+        FoundationSelectionContextMenuArea(state, selectionActions, selectionMenuContent) {
             CompositionLocalProvider(LocalCjkSelectionState provides state) {
                 content()
             }

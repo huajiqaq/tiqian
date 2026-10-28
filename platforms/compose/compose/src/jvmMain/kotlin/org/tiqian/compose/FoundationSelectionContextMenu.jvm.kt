@@ -14,6 +14,8 @@ import androidx.compose.ui.text.AnnotatedString
 @Composable
 internal actual fun FoundationSelectionContextMenuArea(
     state: CjkSelectionState,
+    selectionActions: List<CjkSelectionMenuAction>,
+    selectionMenuContent: (@Composable (CjkSelectionMenuContent) -> Unit)?,
     content: @Composable () -> Unit,
 ) {
     val contextMenuState = remember { ContextMenuState() }

@@ -283,5 +283,7 @@ internal fun androidx.compose.ui.geometry.Rect.containsInclusive(offset: Offset)
 @Composable
 internal expect fun FoundationSelectionContextMenuArea(
     state: CjkSelectionState,
+    selectionActions: List<CjkSelectionMenuAction> = emptyList(),
+    selectionMenuContent: (@Composable (CjkSelectionMenuContent) -> Unit)? = null,
     content: @Composable () -> Unit,
 )
